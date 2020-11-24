@@ -7,15 +7,17 @@
 # © Copyright Philo Decroos
 # Apache 2.0 licence
 
+from moviepy.editor import *
 import pytube
+import re
 import tkinter as tk
 from tkinter import filedialog
-from moviepy.editor import *
 
 
 class Page(tk.Frame):
     def __init__(self, *args, **kwargs):
         tk.Frame.__init__(self, *args, **kwargs)
+        self.youtube_regex = "^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?$"
 
     def show(self):
         self.lift()
@@ -31,25 +33,35 @@ class SingleUrlPage(Page):
         self.include_video.set(0)
 
         self.dirLabel = tk.Label(self, text='Target: ' + self.target)
-        self.dirLabel.grid(row=0, column=0, pady=10, padx=10)
+        self.dirLabel.grid(row=0, column=0, pady=20, padx=10)
 
         self.dirButton = tk.Button(self, command=self.change_target, text="Choose directory")
         self.dirButton.grid(row=0, column=1)
 
         self.urlLabel = tk.Label(self, text="YouTube URL:")
-        self.urlLabel.grid(row=1, column=0, pady=10, padx=10)
+        self.urlLabel.grid(row=1, column=0, pady=20, padx=10)
 
         self.urlEntry = tk.Entry(self, width=40)
         self.urlEntry.grid(row=1, column=1)
 
         self.videoCheckbox = tk.Checkbutton(self, variable=self.include_video, onvalue=1, offvalue=0, text="Include video")
-        self.videoCheckbox.grid(row=2, column=0, pady=10, padx=10)
+        self.videoCheckbox.grid(row=2, column=0, pady=20, padx=10)
 
         self.submitButton = tk.Button(self, command=self.download, text="Download")
         self.submitButton.grid(row=2, column=1)
 
+        self.errorLabel = tk.Label(self, text="", fg="red")
+        self.errorLabel.grid(row=3, columnspan=2, pady=20, padx=10)
+
     def download(self):
         url = self.urlEntry.get()
+
+        youtube_pattern = re.compile(self.youtube_regex)
+        if not youtube_pattern.match(url):
+            self.errorLabel.configure(text='URL is not a YouTube URL!')
+            return
+
+        self.errorLabel.configure(text='')
         youtube = pytube.YouTube(url)
         video = youtube.streams.first()
         path = video.download(self.target)
@@ -62,7 +74,7 @@ class SingleUrlPage(Page):
 
     def change_target(self):
         self.target = tk.filedialog.askdirectory()
-        self.dirLabel.configure(text= 'Target: ' + self.target)
+        self.dirLabel.configure(text='Target: ' + self.target)
 
 
 class FilePage(Page):
@@ -70,28 +82,31 @@ class FilePage(Page):
         Page.__init__(self, *args, **kwargs)
 
         self.target = os.path.expanduser('~/Downloads')
-        self.filename = ''
+        self.filename = 'No file chosen'
 
         self.include_video = tk.IntVar()
         self.include_video.set(0)
 
-        self.fileButton = tk.Button(self, command=self.choose_file, text="Choose file with urls")
-        self.fileButton.grid(row=0, column=0, pady=10, padx=10)
+        self.fileButton = tk.Button(self, command=self.choose_file, text="Choose file")
+        self.fileButton.grid(row=0, column=0, pady=20, padx=20)
 
         self.fileLabel = tk.Label(self, text=self.filename)
         self.fileLabel.grid(row=0, column=1)
 
         self.dirButton = tk.Button(self, command=self.change_target, text="Choose target directory")
-        self.dirButton.grid(row=1, column=0, pady=10, padx=10)
+        self.dirButton.grid(row=1, column=0, pady=20, padx=20)
 
         self.dirLabel = tk.Label(self, text=self.target)
-        self.dirLabel.grid(row=1, column=1, pady=10, padx=10)
+        self.dirLabel.grid(row=1, column=1, pady=20, padx=20)
 
         self.videoCheckbox = tk.Checkbutton(self, variable=self.include_video, onvalue=1, offvalue=0, text="Include video")
-        self.videoCheckbox.grid(row=2, column=0, pady=10, padx=10)
+        self.videoCheckbox.grid(row=2, column=0, pady=20, padx=20)
 
         self.submitButton = tk.Button(self, command=self.download, text="Download")
         self.submitButton.grid(row=2, column=1)
+
+        self.errorLabel = tk.Label(self, text="", fg="red")
+        self.errorLabel.grid(row=3, columnspan=2, pady=20, padx=10)
 
     def choose_file(self):
         self.filename = filedialog.askopenfilename()
@@ -100,6 +115,11 @@ class FilePage(Page):
     def download(self):
         with open(self.filename, 'r') as urls_file:
             for url in urls_file:
+                youtube_pattern = re.compile(self.youtube_regex)
+                if not youtube_pattern.match(url):
+                    self.errorLabel.configure(text='Some URLS were not valid')
+                    continue
+
                 youtube = pytube.YouTube(url)
                 video = youtube.streams.first()
                 path = video.download(self.target)
