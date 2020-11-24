@@ -50,18 +50,20 @@ class SingleUrlPage(Page):
         self.submitButton = tk.Button(self, command=self.download, text="Download")
         self.submitButton.grid(row=2, column=1)
 
-        self.errorLabel = tk.Label(self, text="", fg="red")
-        self.errorLabel.grid(row=3, columnspan=2, pady=20, padx=10)
+        self.statusLabel = tk.Label(self, text="")
+        self.statusLabel.grid(row=3, columnspan=2, pady=20, padx=10)
 
     def download(self):
         url = self.urlEntry.get()
 
         youtube_pattern = re.compile(self.youtube_regex)
         if not youtube_pattern.match(url):
-            self.errorLabel.configure(text='URL is not a YouTube URL!')
+            self.statusLabel.configure(text='URL is not a YouTube URL!', fg="red")
             return
 
-        self.errorLabel.configure(text='')
+        self.statusLabel.configure(text='Download in progress...', fg="green")
+        self.update()
+
         youtube = pytube.YouTube(url)
         video = youtube.streams.first()
         path = video.download(self.target)
@@ -71,6 +73,8 @@ class SingleUrlPage(Page):
             audioclip = videoclip.audio
             audioclip.write_audiofile(path[:-1] + '3')
             os.remove(path)
+
+        self.statusLabel.configure(text='Download complete!', fg='green')
 
     def change_target(self):
         self.target = tk.filedialog.askdirectory()
@@ -106,29 +110,54 @@ class FilePage(Page):
         self.submitButton.grid(row=2, column=1)
 
         self.errorLabel = tk.Label(self, text="", fg="red")
-        self.errorLabel.grid(row=3, columnspan=2, pady=20, padx=10)
+        self.errorLabel.grid(row=3, column=0, pady=20, padx=10)
+
+        self.statusLabel = tk.Label(self, text="", fg="green")
+        self.statusLabel.grid(row=3, column=1, pady=20, padx=10)
 
     def choose_file(self):
         self.filename = filedialog.askopenfilename()
         self.fileLabel.configure(text=self.filename)
 
     def download(self):
-        with open(self.filename, 'r') as urls_file:
-            for url in urls_file:
-                youtube_pattern = re.compile(self.youtube_regex)
-                if not youtube_pattern.match(url):
-                    self.errorLabel.configure(text='Some URLS were not valid')
-                    continue
+        self.errorLabel.configure(text='')
+        self.update()
 
-                youtube = pytube.YouTube(url)
-                video = youtube.streams.first()
-                path = video.download(self.target)
+        urls_file = open(self.filename, 'r').readlines()
+        if (len(urls_file) > 1000):
+            self.errorLabel.configure(text='File is too large.')
+            return
 
-                if self.include_video.get() == 0:
-                    videoclip = VideoFileClip(path)
-                    audioclip = videoclip.audio
-                    audioclip.write_audiofile(path[:-1] + '3')
-                    os.remove(path)
+        downloaded = 0
+        self.statusLabel.configure(text=str(downloaded) + '/' + str(len(urls_file)) + ' downloaded...')
+        self.update()
+
+        for url in urls_file:
+            youtube_pattern = re.compile(self.youtube_regex)
+            if not youtube_pattern.match(url):
+                self.errorLabel.configure(text='Some URLS were not valid')
+                self.update()
+                continue
+
+            youtube = pytube.YouTube(url)
+            video = youtube.streams.first()
+            path = video.download(self.target)
+
+            if self.include_video.get() == 0:
+                videoclip = VideoFileClip(path)
+                audioclip = videoclip.audio
+                audioclip.write_audiofile(path[:-1] + '3')
+                os.remove(path)
+
+            downloaded += 1
+            self.statusLabel.configure(text=str(downloaded) + '/' + str(len(urls_file)) + ' downloaded...')
+            self.update()
+
+        invalid = len(urls_file) - downloaded
+        if invalid == 0:
+            self.statusLabel.configure(text='All downloads complete!')
+        else:
+            self.statusLabel.configure(text='Complete, ' + str(downloaded) + '/' + str(len(urls_file)) + ' downloaded.')
 
     def change_target(self):
         self.target = tk.filedialog.askdirectory()
