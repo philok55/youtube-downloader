@@ -4,7 +4,7 @@
 #
 # Download videos from youtube in MP4 or MP3 format with a simple GUI.
 #
-# © Copyright Philo Decroos
+# Copyright Philo Decroos
 # Apache 2.0 licence
 
 from moviepy.video.io.VideoFileClip import VideoFileClip
@@ -20,7 +20,7 @@ class Page(tk.Frame):
 
     def __init__(self, *args, **kwargs):
         tk.Frame.__init__(self, *args, **kwargs)
-        self.youtube_regex = "^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?$"
+        self.youtube_regex = r"^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?$"
 
     def show(self):
         self.lift()
@@ -83,6 +83,7 @@ class SingleUrlPage(Page):
             videoclip = VideoFileClip(path)
             audioclip = videoclip.audio
             audioclip.write_audiofile(path[:-1] + "3")
+            videoclip.close()
             os.remove(path)
 
         self.status_label.configure(text="Download complete!", fg="green")
@@ -168,6 +169,7 @@ class FilePage(Page):
                 videoclip = VideoFileClip(path)
                 audioclip = videoclip.audio
                 audioclip.write_audiofile(path[:-1] + "3")
+                videoclip.close()
                 os.remove(path)
 
             downloaded += 1
