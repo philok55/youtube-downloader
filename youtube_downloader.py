@@ -7,7 +7,8 @@
 # © Copyright Philo Decroos
 # Apache 2.0 licence
 
-from moviepy.editor import *
+from moviepy.video.io.VideoFileClip import VideoFileClip
+import os
 import pytube
 import re
 import tkinter as tk
@@ -33,7 +34,10 @@ class SingleUrlPage(Page):
         self.target = os.path.expanduser("~/Downloads")
         self.include_video = tk.IntVar()
         self.include_video.set(0)
+        self.make_widgets()
 
+    def make_widgets(self):
+        """Create the widgets that make up the page and position them."""
         self.dir_label = tk.Label(self, text="Target: " + self.target)
         self.dir_label.grid(row=0, column=0, pady=20, padx=10)
 
@@ -94,12 +98,14 @@ class FilePage(Page):
 
     def __init__(self, *args, **kwargs):
         Page.__init__(self, *args, **kwargs)
-
         self.target = os.path.expanduser("~/Downloads")
         self.filename = "No file chosen"
         self.include_video = tk.IntVar()
         self.include_video.set(0)
+        self.make_widgets()
 
+    def make_widgets(self):
+        """Create the widgets that make up the page and position them."""
         self.file_button = tk.Button(self, command=self.choose_file, text="Choose file")
         self.file_button.grid(row=0, column=0, pady=20, padx=20)
 
@@ -185,6 +191,8 @@ class YoutubeDownloader(tk.Frame):
 
     def __init__(self, *args, **kwargs):
         tk.Frame.__init__(self, *args, **kwargs)
+
+        self.winfo_toplevel().title("Youtube Downloader")
 
         self.p1 = SingleUrlPage(self)
         self.p2 = FilePage(self)
