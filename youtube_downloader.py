@@ -20,7 +20,26 @@ import os
 import pytube
 import re
 import spotipy
+import threading
 import tkinter as tk
+
+
+class DownloadThread(threading.Thread):
+    """
+    Thread object used for downloading multiple videos in the background.
+    The stop method can be used to cancel the download.
+    """
+    def __init__(self,  *args, **kwargs):
+        super(DownloadThread, self).__init__(*args, **kwargs)
+        self._stop_event = threading.Event()
+
+    def stop(self):
+        """Sends a stop signal to this thread."""
+        self._stop_event.set()
+
+    def stopped(self):
+        """Used by the thread to check for stop signal."""
+        return self._stop_event.is_set()
 
 
 class Page(tk.Frame):
@@ -29,6 +48,7 @@ class Page(tk.Frame):
     def __init__(self, *args, **kwargs):
         tk.Frame.__init__(self, *args, **kwargs)
         self.youtube_regex = re.compile(r"^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?$")
+        self.download_thread = None
 
     def show(self):
         self.lift()
@@ -47,6 +67,10 @@ class Page(tk.Frame):
     def clip_string(self, string):
         """Clip long strings (file paths for example) so they don't mess up the GUI."""
         return (string[:35] + '...') if len(string) > 35 else string
+
+    def download_in_progress(self):
+        """Check if a download thread is active on this page."""
+        return self.download_thread is not None and self.download_thread.isAlive()
 
 
 class SingleUrlPage(Page):
@@ -112,7 +136,10 @@ class SingleUrlPage(Page):
 
     def change_target(self):
         """Changes the target directory (storage location)."""
-        self.target = tk.filedialog.askdirectory()
+        directory = tk.filedialog.askdirectory()
+        if directory in [(), '']:
+            return  # User pressed cancel
+        self.target = directory
         self.dir_label.configure(text=self.clip_string("Target: " + self.target))
 
 
@@ -144,8 +171,10 @@ class FilePage(Page):
         self.video_checkbox = tk.Checkbutton(self, variable=self.include_video, onvalue=1, offvalue=0, text="Include video")
         self.video_checkbox.grid(row=2, column=0, pady=20, padx=20)
 
-        self.submit_button = tk.Button(self, command=self.download, text="Download")
+        self.submit_button = tk.Button(self, command=self.start_download_thread, text="Download")
         self.submit_button.grid(row=2, column=1)
+
+        self.cancel_button = tk.Button(self, command=self.cancel_download, text="Cancel")
 
         self.error_label = tk.Label(self, text="", fg="red")
         self.error_label.grid(row=3, column=0, pady=20, padx=10)
@@ -155,30 +184,87 @@ class FilePage(Page):
 
     def choose_file(self):
         """Choose a file to use as input."""
-        self.filename = filedialog.askopenfilename()
+        filename = filedialog.askopenfilename()
+        if filename in [(), '']:
+            return  # User pressed cancel
+        self.filename = filename
         self.file_label.configure(text=self.clip_string(self.filename))
+
+    def disable_gui(self):
+        """
+        Disable GUI elements that should not
+        be touched by user during a download.
+        """
+        self.video_checkbox.configure(state='disabled')
+        self.file_button.configure(state='disabled')
+        self.dir_button.configure(state='disabled')
+
+        self.cancel_button.grid(row=2, column=1)
+        self.submit_button.grid_forget()
+
+    def enable_gui(self):
+        """
+        Re-enable GUI elements that should not
+        be touched by user during a download.
+        """
+        self.video_checkbox.configure(state='normal')
+        self.file_button.configure(state='normal')
+        self.dir_button.configure(state='normal')
+
+        self.cancel_button.grid_forget()
+        self.cancel_button.configure(state='normal')
+        self.submit_button.grid(row=2, column=1)
+
+    def start_download_thread(self):
+        """Start a thread to do the downloading in the background."""
+        self.download_thread = DownloadThread(target=self.download, name="Downloader")
+        self.download_thread.start()
+
+    def cancel_download(self):
+        """
+        Send a stop signal to the download thread.
+        It will terminate and restore the GUI.
+        """
+        self.download_thread.stop()
+        self.cancel_button.configure(state='disabled')
 
     def download(self):
         """
         Downloads all youtube videos from the urls listed in the given file.
-
         Stores videos in target location as mp4 or converts to mp3.
+
+        Run this method as a DownloadThread.
         """
+        thread = threading.current_thread()
+        if thread is None:
+            return
+
         self.error_label.configure(text="")
         self.update()
 
-        urls_file = open(self.filename, "r").readlines()
+        try:
+            urls_file = open(self.filename, "r").readlines()
+        except FileNotFoundError:
+            self.error_label.configure(text="File not found.")
+            return
+
         if (len(urls_file) > 1000):
             self.error_label.configure(text="File is too large.")
             return
 
+        self.disable_gui()
         downloaded = 0
         invalid = 0
         not_available = 0
+        cancelled = False
         self.status_label.configure(text=f"{downloaded}/{len(urls_file)} downloaded...")
         self.update()
 
         for url in urls_file:
+            if thread.stopped():
+                cancelled = True
+                break
+
             if not self.youtube_regex.match(url):
                 invalid += 1
                 continue
@@ -200,12 +286,19 @@ class FilePage(Page):
         if invalid == 0 and not_available == 0:
             self.status_label.configure(text="All downloads complete!")
         else:
-            self.status_label.configure(text=f"Complete, {downloaded}/{len(urls_file)} downloaded.")
+            if cancelled:
+                self.status_label.configure(text=f"Cancelled, {downloaded}/{len(urls_file)} downloaded.")
+            else:
+                self.status_label.configure(text=f"Complete, {downloaded}/{len(urls_file)} downloaded.")
             self.error_label.configure(text=f"{invalid} URL's were invalid, \n{not_available} videos were not available \nfor download.")
+        self.enable_gui()
 
     def change_target(self):
         """Changes the target directory (storage location)."""
-        self.target = tk.filedialog.askdirectory()
+        directory = tk.filedialog.askdirectory()
+        if directory in [(), '']:
+            return  # User pressed cancel
+        self.target = directory
         self.dir_label.configure(text=self.clip_string(self.target))
 
 
@@ -252,14 +345,54 @@ class SpotifyPage(Page):
         self.video_checkbox = tk.Checkbutton(self, variable=self.include_video, onvalue=1, offvalue=0, text="Include video")
         self.video_checkbox.grid(row=4, column=0, pady=20, padx=20)
 
-        self.submit_button = tk.Button(self, command=self.download, text="Download")
+        self.submit_button = tk.Button(self, command=self.start_download_thread, text="Download")
         self.submit_button.grid(row=4, column=1)
+
+        self.cancel_button = tk.Button(self, command=self.cancel_download, text="Cancel")
 
         self.error_label = tk.Label(self, text="", fg="red")
         self.error_label.grid(row=5, column=0, pady=20, padx=10)
 
         self.status_label = tk.Label(self, text="", fg="green")
         self.status_label.grid(row=5, column=1, pady=20, padx=10)
+
+    def disable_gui(self):
+        """
+        Disable GUI elements that should not
+        be touched by user during a download.
+        """
+        self.video_checkbox.configure(state='disabled')
+        self.search_button.configure(state='disabled')
+        self.dir_button.configure(state='disabled')
+
+        self.cancel_button.grid(row=4, column=1)
+        self.submit_button.grid_forget()
+
+    def enable_gui(self):
+        """
+        Re-enable GUI elements that should not
+        be touched by user during a download.
+        """
+        self.video_checkbox.configure(state='normal')
+        self.search_button.configure(state='normal')
+        self.dir_button.configure(state='normal')
+
+        self.cancel_button.grid_forget()
+        self.cancel_button.configure(state='normal')
+        self.submit_button.grid(row=4, column=1)
+
+    def start_download_thread(self):
+        """Start a thread to do the downloading in the background."""
+        self.download_thread = DownloadThread(target=self.download, name="Downloader")
+        self.download_thread.start()
+
+    def cancel_download(self):
+        """
+        Send a stop signal to the download thread.
+        It will terminate and restore the GUI.
+        """
+        self.download_thread.stop()
+        self.cancel_button.configure(state='disabled')
 
     def search_playlist(self):
         """Search for a Spotify playlist and display the name of the first match."""
@@ -314,12 +447,15 @@ class SpotifyPage(Page):
         """
         Tries to find all songs from the selected Spotify
         playlist on Youtube and downloads them.
-
         Stores videos in target location as mp4 or converts to mp3.
+
+        Run this method as a DownloadThread.
         """
-        if not self.is_valid():
+        thread = threading.current_thread()
+        if thread is None or not self.is_valid():
             return
 
+        self.disable_gui()
         self.error_label.configure(text="")
         self.update()
 
@@ -328,6 +464,7 @@ class SpotifyPage(Page):
         offset = 0  # Spotify API is paginated, so we remember the offset
         tracks = self.get_tracks(offset)
 
+        cancelled = False
         downloaded = 0
         not_found = 0
         self.status_label.configure(text=f"{downloaded}/{length} downloaded...")
@@ -335,6 +472,10 @@ class SpotifyPage(Page):
 
         while True:  # Loop over pages of Spotify API
             for track in tracks['items']:
+                if thread.stopped():
+                    cancelled = True
+                    break
+
                 yt = YouTubeDataAPI(os.environ.get('YOUTUBE_API_KEY'))
                 artist = track['track']['artists'][0]['name']
                 track_name = track['track']['name']
@@ -364,7 +505,7 @@ class SpotifyPage(Page):
                 self.update()
 
             offset += 100  # Increase offset and retrieve next page if it exists
-            if offset < length and tracks['next']:
+            if offset < length and tracks['next'] and not cancelled:
                 tracks = self.get_tracks(offset)
             else:
                 break
@@ -372,11 +513,19 @@ class SpotifyPage(Page):
         if not_found == 0:
             self.status_label.configure(text="All downloads complete!")
         else:
-            self.status_label.configure(text=f"Complete, {downloaded}/{length} downloaded.")
+            if cancelled:
+                self.status_label.configure(text=f"Cancelled, {downloaded}/{length} downloaded.")
+            else:
+                self.status_label.configure(text=f"Complete, {downloaded}/{length} downloaded.")
+            self.error_label.configure(text=f"{not_found} videos were not available \nfor download.")
+        self.enable_gui()
 
     def change_target(self):
         """Changes the target directory (storage location)."""
-        self.target = tk.filedialog.askdirectory()
+        directory = tk.filedialog.askdirectory()
+        if directory in [(), '']:
+            return  # User pressed cancel
+        self.target = directory
         self.dir_label.configure(text=self.clip_string(self.target))
 
 
@@ -401,15 +550,28 @@ class YoutubeDownloader(tk.Frame):
         self.p2.place(in_=self.container, x=0, y=0, relwidth=1, relheight=1)
         self.p3.place(in_=self.container, x=0, y=0, relwidth=1, relheight=1)
 
-        self.b1 = tk.Button(self.buttonframe, text="Single url", command=self.p1.lift)
-        self.b2 = tk.Button(self.buttonframe, text="From file", command=self.p2.lift)
-        self.b3 = tk.Button(self.buttonframe, text="From Spotify", command=self.p3.lift)
+        self.b1 = tk.Button(self.buttonframe, text="Single url", command=lambda: self.go_to_page(self.p1.lift))
+        self.b2 = tk.Button(self.buttonframe, text="From file", command=lambda: self.go_to_page(self.p2.lift))
+        self.b3 = tk.Button(self.buttonframe, text="From Spotify", command=lambda: self.go_to_page(self.p3.lift))
 
         self.b1.pack(side="left")
         self.b2.pack(side="left")
         self.b3.pack(side="left")
         self.p1.show()
 
+    def go_to_page(self, command):
+        """
+        Execute the given function (switch to page),
+        but only if a download is not in progress.
+        """
+        if not self.download_in_progress():
+            command()
+
+    def download_in_progress(self):
+        """Check if a download is in progress in one of the pages."""
+        return (self.p1.download_in_progress() or
+                self.p2.download_in_progress() or
+                self.p3.download_in_progress())
 
 if __name__ == "__main__":
     root = tk.Tk()
