@@ -14,7 +14,6 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from tkinter import filedialog
 from urllib.parse import unquote
 from youtube_api import YouTubeDataAPI
-import asyncio
 import magic
 import os
 import pytube
@@ -49,9 +48,6 @@ class Page(tk.Frame):
         tk.Frame.__init__(self, *args, **kwargs)
         self.youtube_regex = re.compile(r"^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?$")
         self.download_thread = None
-
-    def show(self):
-        self.lift()
 
     def convert_to_mp3(self, video_path):
         """Convert an mp4 video to an mp3 audio file."""
@@ -410,7 +406,8 @@ class SpotifyPage(Page):
             return
 
         self.playlist = result['playlists']['items'][0]
-        self.current_playlist.configure(text=self.clip_string(self.playlist['owner']['display_name'] + ' - ' + self.playlist['name']))
+        display = self.de_emojify(self.clip_string(self.playlist['owner']['display_name'] + ' - ' + self.playlist['name']))
+        self.current_playlist.configure(text=display)
 
     def get_tracks(self, offset):
         """
@@ -528,6 +525,16 @@ class SpotifyPage(Page):
         self.target = directory
         self.dir_label.configure(text=self.clip_string(self.target))
 
+    def de_emojify(self, string):
+        """Remove emojis from a string."""
+        emoji_pattern = re.compile("["
+            u"\U0001F600-\U0001F64F"  # emoticons
+            u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+            u"\U0001F680-\U0001F6FF"  # transport & map symbols
+            u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+            "]+", flags=re.UNICODE)
+        return emoji_pattern.sub(r'', string)
+
 
 class YoutubeDownloader(tk.Frame):
     """Main frame for the GUI, contains the two pages and navigation buttons."""
@@ -557,7 +564,7 @@ class YoutubeDownloader(tk.Frame):
         self.b1.pack(side="left")
         self.b2.pack(side="left")
         self.b3.pack(side="left")
-        self.p1.show()
+        self.p1.lift()
 
     def go_to_page(self, command):
         """
