@@ -35,7 +35,7 @@ class Page(tk.Frame):
 
     def convert_to_mp3(self, video_path):
         """Convert an mp4 video to an mp3 audio file."""
-        if magic.from_file(video_path) != 'video/mp4':
+        if magic.from_file(video_path, mime=True) != 'video/mp4':
             return
 
         videoclip = VideoFileClip(video_path)
