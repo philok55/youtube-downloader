@@ -15,6 +15,7 @@ from tkinter import filedialog
 from urllib.parse import unquote
 from youtube_api import YouTubeDataAPI
 import asyncio
+import magic
 import os
 import pytube
 import re
@@ -23,14 +24,29 @@ import tkinter as tk
 
 
 class Page(tk.Frame):
-    """Base class for a GUI page."""
+    """Base class for a GUI page. Contains methods that all pages need."""
 
     def __init__(self, *args, **kwargs):
         tk.Frame.__init__(self, *args, **kwargs)
-        self.youtube_regex = r"^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?$"
+        self.youtube_regex = re.compile(r"^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?$")
 
     def show(self):
         self.lift()
+
+    def convert_to_mp3(self, video_path):
+        """Convert an mp4 video to an mp3 audio file."""
+        if magic.from_file(video_path) != 'video/mp4':
+            return
+
+        videoclip = VideoFileClip(video_path)
+        audioclip = videoclip.audio
+        audioclip.write_audiofile(video_path[:-1] + "3")
+        videoclip.close()
+        os.remove(video_path)
+
+    def clip_string(self, string):
+        """Clip long strings (file paths for example) so they don't mess up the GUI."""
+        return (string[:35] + '...') if len(string) > 35 else string
 
 
 class SingleUrlPage(Page):
@@ -45,7 +61,7 @@ class SingleUrlPage(Page):
 
     def make_widgets(self):
         """Create the widgets that make up the page and position them."""
-        self.dir_label = tk.Label(self, text="Target: " + self.target)
+        self.dir_label = tk.Label(self, text=self.clip_string("Target: " + self.target))
         self.dir_label.grid(row=0, column=0, pady=20, padx=10)
 
         self.dir_button = tk.Button(self, command=self.change_target, text="Choose directory")
@@ -74,8 +90,7 @@ class SingleUrlPage(Page):
         """
         url = self.url_entry.get()
 
-        youtube_pattern = re.compile(self.youtube_regex)
-        if not youtube_pattern.match(url):
+        if not self.youtube_regex.match(url):
             self.status_label.configure(text="URL is not a YouTube URL!", fg="red")
             return
 
@@ -90,20 +105,15 @@ class SingleUrlPage(Page):
             return
 
         path = video.download(self.target)
-
-        if self.include_video.get() == 0:  # Convert to mp3
-            videoclip = VideoFileClip(path)
-            audioclip = videoclip.audio
-            audioclip.write_audiofile(path[:-1] + "3")
-            videoclip.close()
-            os.remove(path)
+        if self.include_video.get() == 0:
+            self.convert_to_mp3(path)
 
         self.status_label.configure(text="Download complete!", fg="green")
 
     def change_target(self):
         """Changes the target directory (storage location)."""
         self.target = tk.filedialog.askdirectory()
-        self.dir_label.configure(text="Target: " + self.target)
+        self.dir_label.configure(text=self.clip_string("Target: " + self.target))
 
 
 class FilePage(Page):
@@ -122,13 +132,13 @@ class FilePage(Page):
         self.file_button = tk.Button(self, command=self.choose_file, text="Choose file")
         self.file_button.grid(row=0, column=0, pady=20, padx=20)
 
-        self.file_label = tk.Label(self, text=self.filename)
+        self.file_label = tk.Label(self, text=self.clip_string(self.filename))
         self.file_label.grid(row=0, column=1)
 
         self.dir_button = tk.Button(self, command=self.change_target, text="Choose target directory")
         self.dir_button.grid(row=1, column=0, pady=20, padx=20)
 
-        self.dir_label = tk.Label(self, text=self.target)
+        self.dir_label = tk.Label(self, text=self.clip_string(self.target))
         self.dir_label.grid(row=1, column=1, pady=20, padx=20)
 
         self.video_checkbox = tk.Checkbutton(self, variable=self.include_video, onvalue=1, offvalue=0, text="Include video")
@@ -146,7 +156,7 @@ class FilePage(Page):
     def choose_file(self):
         """Choose a file to use as input."""
         self.filename = filedialog.askopenfilename()
-        self.file_label.configure(text=self.filename)
+        self.file_label.configure(text=self.clip_string(self.filename))
 
     def download(self):
         """
@@ -165,12 +175,11 @@ class FilePage(Page):
         downloaded = 0
         invalid = 0
         not_available = 0
-        self.status_label.configure(text=str(downloaded) + "/" + str(len(urls_file)) + " downloaded...")
+        self.status_label.configure(text=f"{downloaded}/{len(urls_file)} downloaded...")
         self.update()
 
         for url in urls_file:
-            youtube_pattern = re.compile(self.youtube_regex)
-            if not youtube_pattern.match(url):
+            if not self.youtube_regex.match(url):
                 invalid += 1
                 continue
 
@@ -181,12 +190,8 @@ class FilePage(Page):
                 continue
 
             path = video.download(self.target)
-            if self.include_video.get() == 0:  # Convert to mp3
-                videoclip = VideoFileClip(path)
-                audioclip = videoclip.audio
-                audioclip.write_audiofile(path[:-1] + "3")
-                videoclip.close()
-                os.remove(path)
+            if self.include_video.get() == 0:
+                self.convert_to_mp3(path)
 
             downloaded += 1
             self.status_label.configure(text=f"{downloaded}/{len(urls_file)} downloaded...")
@@ -201,7 +206,7 @@ class FilePage(Page):
     def change_target(self):
         """Changes the target directory (storage location)."""
         self.target = tk.filedialog.askdirectory()
-        self.dir_label.configure(text=self.target)
+        self.dir_label.configure(text=self.clip_string(self.target))
 
 
 class SpotifyPage(Page):
@@ -241,7 +246,7 @@ class SpotifyPage(Page):
         self.dir_button = tk.Button(self, command=self.change_target, text="Choose target directory")
         self.dir_button.grid(row=3, column=0, pady=20, padx=20)
 
-        self.dir_label = tk.Label(self, text=self.target)
+        self.dir_label = tk.Label(self, text=self.clip_string(self.target))
         self.dir_label.grid(row=3, column=1, pady=20, padx=20)
 
         self.video_checkbox = tk.Checkbutton(self, variable=self.include_video, onvalue=1, offvalue=0, text="Include video")
@@ -272,7 +277,38 @@ class SpotifyPage(Page):
             return
 
         self.playlist = result['playlists']['items'][0]
-        self.current_playlist.configure(text=self.playlist['owner']['display_name'] + ' - ' + self.playlist['name'])
+        self.current_playlist.configure(text=self.clip_string(self.playlist['owner']['display_name'] + ' - ' + self.playlist['name']))
+
+    def get_tracks(self, offset):
+        """
+        Get the next 100 tracks from the selected
+        playlist, starting from the offset.
+        """
+        if self.playlist == {}:
+            return
+
+        return self.spotify.playlist_items(
+            self.playlist['id'],
+            fields=('items(track(name,artists(name))),next'),
+            limit=100,
+            offset=offset,
+            additional_types=('track',)
+        )
+
+    def is_valid(self):
+        """Check for possible errors before starting the download."""
+        if self.playlist == {}:
+            self.error_label.configure(text="Please search a playlist first.")
+            self.update()
+            return False
+
+        length = self.playlist['tracks']['total']
+        if (length > 1000):
+            self.error_label.configure(text="The playlist cannot be \nlonger than 1000 songs.")
+            self.update()
+            return False
+
+        return True
 
     def download(self):
         """
@@ -281,32 +317,20 @@ class SpotifyPage(Page):
 
         Stores videos in target location as mp4 or converts to mp3.
         """
-        if self.playlist == {}:
-            self.error_label.configure(text="Please search a playlist first.")
-            self.update()
-            return
-
-        length = self.playlist['tracks']['total']
-        if (length > 1000):
-            self.error_label.configure(text="The playlist cannot be \nlonger than 1000 songs.")
-            self.update()
+        if not self.is_valid():
             return
 
         self.error_label.configure(text="")
         self.update()
 
+        length = self.playlist['tracks']['total']
+
         offset = 0  # Spotify API is paginated, so we remember the offset
-        tracks = self.spotify.playlist_items(
-            self.playlist['id'],
-            fields=('items(track(name,artists(name))),next'),
-            limit=100,
-            offset=offset,
-            additional_types=('track',)
-        )
+        tracks = self.get_tracks(offset)
 
         downloaded = 0
         not_found = 0
-        self.status_label.configure(text=str(downloaded) + "/" + str(length) + " downloaded...")
+        self.status_label.configure(text=f"{downloaded}/{length} downloaded...")
         self.update()
 
         while True:  # Loop over pages of Spotify API
@@ -314,14 +338,9 @@ class SpotifyPage(Page):
                 yt = YouTubeDataAPI(os.environ.get('YOUTUBE_API_KEY'))
                 artist = track['track']['artists'][0]['name']
                 track_name = track['track']['name']
-
                 searches = yt.search(q=f'{artist} {track_name}', max_results=5)
-                if len(searches) == 0:
-                    not_found += 1
-                    continue
-
                 video = None
-                for result in searches:
+                for result in searches:  # Look for first downloadable video in top 5 results
                     video_title = unquote(result['video_title'].lower())  # Decode URL encoding
                     if track_name.lower() not in video_title and not any(map(video_title.__contains__, ['ft', 'feat'])):
                         continue  # Try to filter irrelevant search results
@@ -337,38 +356,28 @@ class SpotifyPage(Page):
                     continue
 
                 path = video.download(self.target)
-                if self.include_video.get() == 0:  # Convert to mp3
-                    videoclip = VideoFileClip(path)
-                    audioclip = videoclip.audio
-                    audioclip.write_audiofile(path[:-1] + "3")
-                    videoclip.close()
-                    os.remove(path)
+                if self.include_video.get() == 0:
+                    self.convert_to_mp3(path)
 
                 downloaded += 1
-                self.status_label.configure(text=str(downloaded) + "/" + str(length) + " downloaded...")
+                self.status_label.configure(text=f"{downloaded}/{length} downloaded...")
                 self.update()
 
             offset += 100  # Increase offset and retrieve next page if it exists
             if offset < length and tracks['next']:
-                tracks = self.spotify.playlist_items(
-                    self.playlist['id'],
-                    fields=('items(track(name,artists(name))),next'),
-                    limit=100,
-                    offset=offset,
-                    additional_types=('track',)
-                )
+                tracks = self.get_tracks(offset)
             else:
                 break
 
         if not_found == 0:
             self.status_label.configure(text="All downloads complete!")
         else:
-            self.status_label.configure(text="Complete, " + str(downloaded) + "/" + str(length) + " downloaded.")
+            self.status_label.configure(text=f"Complete, {downloaded}/{length} downloaded.")
 
     def change_target(self):
         """Changes the target directory (storage location)."""
         self.target = tk.filedialog.askdirectory()
-        self.dir_label.configure(text=self.target)
+        self.dir_label.configure(text=self.clip_string(self.target))
 
 
 class YoutubeDownloader(tk.Frame):
@@ -406,5 +415,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     downloader = YoutubeDownloader(root)
     downloader.pack(side="top", fill="both", expand=True)
-    root.wm_geometry("600x450")
+    root.wm_geometry("650x450")
     root.mainloop()
